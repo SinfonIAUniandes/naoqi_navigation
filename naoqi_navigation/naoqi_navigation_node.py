@@ -31,24 +31,24 @@ class NaoqiNavigationNode(Node):
         # ALMotion
         self.move_to_service = self.create_service(
             MoveTo,
-            '~/move_to',
+            'move_to',
             self.move_to_callback
         )
 
         # ALNavigation
         self.navigate_to_service = self.create_service(
             MoveTo,
-            '~/navigate_to',
+            'navigate_to',
             self.navigate_to_callback
         )
         self.start_exploring_service = self.create_service(
             Explore,
-            '~/start_exploring',
+            'start_exploring',
             self.start_exploring_callback
         )
         self.stop_exploring_service = self.create_service(
             Trigger,
-            '~/stop_exploring',
+            'stop_exploring',
             self.stop_exploring_callback
         )
 
