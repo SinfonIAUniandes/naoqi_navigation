@@ -11,17 +11,18 @@ class NaoqiNavigationNode(Node):
     """
     ROS2 Node to manage navigation functionalities of a NAO robot.
     """
-    def __init__(self, session):
+    def __init__(self, session, robot_url=None):
         """
         Initializes the node, NAOqi service clients, and ROS2 services.
         """
         super().__init__('naoqi_navigation_node')
         self.get_logger().info("Initializing NaoqiNavigationNode...")
+        self.session = session
+        self.robot_url = robot_url
 
         # --- NAOqi Service Clients ---
         try:
-            self.al_motion = session.service("ALMotion")
-            self.al_navigation = session.service("ALNavigation")
+            self._refresh_naoqi_services()
             self.get_logger().info("NAOqi service clients obtained successfully.")
         except Exception as e:
             self.get_logger().error(f"Could not connect to NAOqi services: {e}")
@@ -54,11 +55,39 @@ class NaoqiNavigationNode(Node):
 
         self.get_logger().info("Navigation functionalities node is ready.")
 
+    def _ensure_session_connected(self):
+        if self.session.isConnected():
+            return True
+        if not self.robot_url:
+            return False
+        self.get_logger().warn("NAOqi session is disconnected. Attempting to reconnect...")
+        try:
+            self.session.close()
+        except Exception:
+            pass
+        try:
+            self.session.connect(self.robot_url)
+            self.get_logger().info("NAOqi session reconnected.")
+            return True
+        except Exception as e:
+            self.get_logger().warn(f"Could not reconnect NAOqi session: {e}")
+            return False
+
+    def _service(self, name):
+        if not self._ensure_session_connected():
+            raise RuntimeError("NAOqi session is not connected")
+        return self.session.service(name)
+
+    def _refresh_naoqi_services(self):
+        self.al_motion = self._service("ALMotion")
+        self.al_navigation = self._service("ALNavigation")
+
     def move_to_callback(self, request, response):
         """
         Callback to move the robot to a relative target.
         """
         try:
+            self._refresh_naoqi_services()
             self.get_logger().info(f"Request to move to ({request.x_coordinate}, {request.y_coordinate}, {request.theta_coordinate}).")
             self.al_motion.moveTo(request.x_coordinate, request.y_coordinate, request.theta_coordinate)
         except Exception as e:
@@ -70,6 +99,7 @@ class NaoqiNavigationNode(Node):
         Callback to make the robot navigate to a specific coordinate in the map.
         """
         try:
+            self._refresh_naoqi_services()
             self.get_logger().info(f"Request to navigate to ({request.x_coordinate}, {request.y_coordinate}).")
             # navigateTo does not use theta, so we ignore it.
             self.al_navigation.navigateTo(request.x_coordinate, request.y_coordinate)
@@ -82,6 +112,7 @@ class NaoqiNavigationNode(Node):
         Callback to start exploration.
         """
         try:
+            self._refresh_naoqi_services()
             self.get_logger().info(f"Request to start exploring with a radius of {request.radius} meters.")
             self.al_navigation.explore(request.radius)
         except Exception as e:
@@ -93,6 +124,7 @@ class NaoqiNavigationNode(Node):
         Callback to stop exploration.
         """
         try:
+            self._refresh_naoqi_services()
             self.get_logger().info("Request to stop exploration.")
             self.al_navigation.stopExploration()
         except Exception as e:
@@ -111,14 +143,15 @@ def main(args=None):
     parsed_args, _ = parser.parse_known_args(args=sys.argv[1:])
 
     session = qi.Session()
+    robot_url = f"tcp://{parsed_args.ip}:{parsed_args.port}"
     try:
-        session.connect(f"tcp://{parsed_args.ip}:{parsed_args.port}")
+        session.connect(robot_url)
     except RuntimeError:
         print(f"Can't connect to Naoqi at ip \"{parsed_args.ip}\" on port {parsed_args.port}.\n"
               "Please check your script arguments. Run with -h option for help.")
         sys.exit(1)
 
-    naoqi_navigation_node = NaoqiNavigationNode(session)
+    naoqi_navigation_node = NaoqiNavigationNode(session, robot_url)
 
     try:
         rclpy.spin(naoqi_navigation_node)
